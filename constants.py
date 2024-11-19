@@ -1,7 +1,7 @@
 # constants.py
 
 # Network constants
-HOST = '127.0.0.1'  # Replace with the server's IP address
+HOST = '172.27.60.15'  # Replace with the server's IP address
 PORT = 12345
 
 # Game constants

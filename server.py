@@ -7,7 +7,7 @@ import pickle
 from level import create_platforms  # Import the platform creation function
 from player import Player
 from constants import (
-    HOST, PORT, TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT,
+    PORT, TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT,
     DEBUG_BAR_HEIGHT
 )
 from network_utils import recvall
@@ -28,7 +28,7 @@ class Server:
         self.lock = threading.Lock()
         self.clients = {}  # {conn: uuid}
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind((HOST, PORT))
+        self.server_socket.bind(('0.0.0.0', PORT))
         self.server_socket.listen()
         print(f"Server started on port {PORT}, waiting for connections...")
 
