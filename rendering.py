@@ -95,10 +95,41 @@ def render_players(screen, players_dict, local_player, font=None, show_ids=None,
 
 def render_platforms(screen, platforms, camera=None):
     """
-    Render all platforms onto the screen.
+    Render all platforms onto the screen, optimizing by grouping adjacent tiles of the same type.
     """
+    # Group platforms by type and position
+    platform_groups = {}
     for platform in platforms:
-        platform.render(screen, camera)
+        if not platform.active:
+            continue
+        key = platform.platform_type
+        if key not in platform_groups:
+            platform_groups[key] = []
+        platform_groups[key].append(platform)
+
+    for platform_type, platform_list in platform_groups.items():
+        # Get the color for the platform type
+        color = get_platform_color(platform_type)
+
+        for platform in platform_list:
+            # Adjust the platform's rectangle based on the camera
+            adjusted_rect = camera.apply_rect(platform.rect) if camera else platform.rect
+            pygame.draw.rect(screen, color, adjusted_rect)
+
+def get_platform_color(platform_type):
+    """
+    Return the color associated with a platform type.
+    """
+    if platform_type == "normal":
+        return COLOR_GREEN
+    elif platform_type == "breakable":
+        return (139, 69, 19)  # Brown color
+    elif platform_type == "gravity":
+        return COLOR_BLUE
+    elif platform_type == "deadly":
+        return (255, 0, 0)
+    else:
+        return COLOR_GREEN  # Default color for unknown types
 
 def render_chat(screen, font, chat_messages):
     """

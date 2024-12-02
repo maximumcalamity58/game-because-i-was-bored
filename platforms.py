@@ -21,7 +21,7 @@ class Platforms:
             int(height_in_tiles * TILE_SIZE)
         )
         # Additional attributes for different platform types
-        self.active = True  # For breakable platforms
+        self.active = True  # For breakable and deadly platforms
         self.break_timer = 0  # Timer for breakable platforms
         self.respawn_timer = 0  # Timer for respawning
 
@@ -33,15 +33,15 @@ class Platforms:
                     self.active = True
                     self.respawn_timer = 0
             elif self.break_timer > 0:
+                self.break_timer += delta_time
                 if self.break_timer >= 1:
                     self.active = False
                     self.break_timer = 0
-                else:
-                    self.break_timer += delta_time
-            else:
-                self.break_timer = 0  # Ensure break_timer is reset if not being incremented
-        else:
-            self.break_timer = 0  # Reset break timer for non-breakable platforms
+        elif self.platform_type == "deadly" and not self.active:
+            self.respawn_timer += delta_time
+            if self.respawn_timer >= 1:
+                self.active = True
+                self.respawn_timer = 0
 
     def render(self, screen, camera=None):
         if not self.active:
@@ -53,6 +53,8 @@ class Platforms:
             color = (139, 69, 19)  # Brown color
         elif self.platform_type == "gravity":
             color = COLOR_BLUE
+        elif self.platform_type == "deadly":
+            color = (255, 0, 0)  # Red color for deadly platforms
         else:
             color = COLOR_GREEN  # Default color for unknown types
 

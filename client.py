@@ -263,9 +263,14 @@ def main():
                         # Update players
                         for uuid, pdata in players_data.items():
                             if uuid == player_uuid:
-                                # Update local player attributes (position handled separately)
+                                # Update local player attributes
                                 player.update_attributes(pdata)
+                                # Update position from server
+                                player.grid_x, player.grid_y = pdata.get('position', (0, 0))
+                                player.rect.x = int(player.grid_x * TILE_SIZE)
+                                player.rect.y = int(player.grid_y * TILE_SIZE)
                             else:
+                                # Update other players
                                 if pdata.get('connected', False):
                                     if uuid not in players:
                                         players[uuid] = Player(
@@ -292,7 +297,8 @@ def main():
 
                         # Update camera dimensions based on level size
                         level_width = max(platform.rect.right for platform in platforms) if platforms else SCREEN_WIDTH
-                        level_height = max(platform.rect.bottom for platform in platforms) if platforms else SCREEN_HEIGHT
+                        level_height = max(
+                            platform.rect.bottom for platform in platforms) if platforms else SCREEN_HEIGHT
                         camera.width = level_width
                         camera.height = level_height
 
@@ -322,7 +328,8 @@ def main():
             data = {
                 'position': (player.grid_x, player.grid_y),
                 'velocity_x': player.velocity_x,
-                'velocity_y': player.velocity_y
+                'velocity_y': player.velocity_y,
+                'gravity_direction': player.gravity_direction  # Add this line
             }
             serialized_data = pickle.dumps(data)
             data_length = len(serialized_data)

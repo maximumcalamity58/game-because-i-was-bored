@@ -191,6 +191,8 @@ class Server:
                             player.velocity_y = client_data.get('velocity_y', player.velocity_y)
                             player.rect.x = int(player.grid_x * TILE_SIZE)
                             player.rect.y = int(player.grid_y * TILE_SIZE)
+                            # Update gravity_direction
+                            player.gravity_direction = client_data.get('gravity_direction', player.gravity_direction)
 
                 self.broadcast_game_state()
             except ConnectionResetError:
@@ -265,6 +267,15 @@ class Server:
         for platform in self.platforms:
             platform.update(delta_time)
 
+        # Update players
+        with self.lock:
+            for player in self.players.values():
+                if not player.connected:
+                    continue
+
+                # Process interactions with platforms
+                self.check_player_platform_collisions(player, delta_time)
+
     def render_game(self):
         while True:
             delta_time = self.clock.tick(60) / 1000.0  # Convert to seconds
@@ -319,6 +330,19 @@ class Server:
 
             # Update display
             pygame.display.flip()
+
+    def check_player_platform_collisions(self, player, delta_time):
+        for platform in self.platforms:
+            if not platform.active:
+                continue  # Skip inactive platforms
+            if player.rect.colliderect(platform.rect):
+                # Process platform effects
+                if platform.platform_type == "breakable":
+                    if platform.break_timer == 0:
+                        platform.break_timer = delta_time
+                elif platform.platform_type == "gravity":
+                    if player.is_standing_on_platform(platform):
+                        player.change_gravity(platform)
 
     def run(self):
         """

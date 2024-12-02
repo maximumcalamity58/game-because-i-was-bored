@@ -172,25 +172,24 @@ class Player:
                 continue  # Skip inactive platforms
             if self.rect.colliderect(platform.rect):
                 # Handle collision response
+                if platform.platform_type == "deadly":
+                    self.respawn()
+                    return  # Exit collision checking for this frame
+
                 if direction == "horizontal":
                     if self.velocity_x > 0:
-                        # Moving right; collision from left
                         self.rect.right = platform.rect.left
                     elif self.velocity_x < 0:
-                        # Moving left; collision from right
                         self.rect.left = platform.rect.right
                     self.grid_x = self.rect.x / TILE_SIZE
                     self.velocity_x = 0
                 elif direction == "vertical":
                     if self.velocity_y > 0:
-                        # Moving down; collision from top
                         self.rect.bottom = platform.rect.top
                     elif self.velocity_y < 0:
-                        # Moving up; collision from bottom
                         self.rect.top = platform.rect.bottom
                     self.grid_y = self.rect.y / TILE_SIZE
                     self.velocity_y = 0
-
 
                     # Determine if on ground based on gravity direction
                     if self.gravity_direction == "down" and self.rect.bottom == platform.rect.top:
@@ -202,15 +201,27 @@ class Player:
                     elif self.gravity_direction == "right" and self.rect.right == platform.rect.left:
                         self.on_ground = True
 
-                # After handling collision response, process platform effects
+                # Process platform effects
                 if platform.platform_type == "breakable":
-                    if self.is_standing_on_platform(platform):
-                        platform.break_timer += delta_time
-                    else:
-                        platform.break_timer = 0  # Reset break timer if not standing
+                    platform.break_timer += delta_time
+                    if platform.break_timer >= 1:
+                        platform.active = False
+                        platform.break_timer = 0
                 elif platform.platform_type == "gravity":
-                    if self.is_standing_on_platform(platform):
-                        self.change_gravity(platform)
+                    # Always change gravity when colliding with a gravity platform
+                    self.change_gravity(platform)
+
+    def respawn(self):
+        """
+        Respawn the player at the starting position.
+        """
+        self.grid_x, self.grid_y = 2.0, 10.0  # Example respawn coordinates
+        self.rect.x = int(self.grid_x * TILE_SIZE)
+        self.rect.y = int(self.grid_y * TILE_SIZE)
+        self.velocity_x = 0
+        self.velocity_y = 0
+        self.gravity_direction = "down"
+        self.on_ground = False
 
     def is_standing_on_platform(self, platform):
         """
@@ -252,21 +263,22 @@ class Player:
     def change_gravity(self, platform):
         dx = self.rect.centerx - platform.rect.centerx
         dy = self.rect.centery - platform.rect.centery
+
         if abs(dx) > abs(dy):
             if dx > 0:
-                new_gravity = "right"
-            else:
                 new_gravity = "left"
+            else:
+                new_gravity = "right"
         else:
             if dy > 0:
-                new_gravity = "down"
-            else:
                 new_gravity = "up"
+            else:
+                new_gravity = "down"
 
         if self.gravity_direction != new_gravity:
             self.gravity_direction = new_gravity
             self.on_ground = False  # Reset on_ground status
-            # Reset the velocity along the new gravity axis
+            # Reset velocity along the new gravity axis
             if new_gravity in ("down", "up"):
                 self.velocity_y = 0
             else:
