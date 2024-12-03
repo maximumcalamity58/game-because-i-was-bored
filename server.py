@@ -291,7 +291,7 @@ class Server:
         """
         Broadcast server information to the network using multicast.
         """
-        multicast_group = '224.0.0.1'  # Multicast group address
+        multicast_group = '224.0.0.2'  # Multicast group address
         multicast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         multicast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 

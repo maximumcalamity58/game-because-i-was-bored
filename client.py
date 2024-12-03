@@ -2,6 +2,8 @@ import os
 import sys
 import subprocess
 import importlib
+from tkinter import messagebox
+
 
 def ensure_package(package_name):
     """
@@ -52,7 +54,7 @@ def discover_servers_multicast(server_queue, stop_event, timeout=5):
     Discover available servers by listening for multicast messages.
     Sends discovered servers to a queue for GUI updates.
     """
-    multicast_group = '224.0.0.1'  # Multicast group address (commonly used address)
+    multicast_group = '224.0.0.2'  # Multicast group address (commonly used address)
     port = BROADCAST_PORT  # Same port as before
     multicast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 
@@ -91,6 +93,7 @@ def discover_servers_multicast(server_queue, stop_event, timeout=5):
 def select_server_gui():
     """
     Create a tkinter GUI to display and select a server, with manual refresh and dynamic updates.
+    Also allows manual input of IP and port via text entries above the buttons.
     """
     servers = []
     selected_server = {}
@@ -124,14 +127,27 @@ def select_server_gui():
 
     def select_server(event=None):
         """
-        Select a server from the list and close the GUI.
+        Select a server from the list or use the manual input, and close the GUI.
         """
-        selection = server_listbox.curselection()
-        if selection:
-            index = selection[0]
-            selected_server.update(servers[index])
-            stop_event.set()  # Stop the discovery thread
-            root.destroy()
+        ip = ip_entry.get().strip()
+        port = port_entry.get().strip()
+        if ip and port:
+            try:
+                port = int(port)
+                selected_server.update({'server_name': 'Manual Entry', 'address': ip, 'port': port})
+                stop_event.set()
+                root.destroy()
+            except ValueError:
+                messagebox.showerror("Invalid Port", "Port must be an integer.")
+        else:
+            selection = server_listbox.curselection()
+            if selection:
+                index = selection[0]
+                selected_server.update(servers[index])
+                stop_event.set()  # Stop the discovery thread
+                root.destroy()
+            else:
+                messagebox.showerror("No Server Selected", "Please select a server from the list or enter an IP and port.")
 
     def poll_queue():
         """
@@ -151,8 +167,24 @@ def select_server_gui():
     server_listbox.pack(pady=5)
     server_listbox.bind("<Double-1>", select_server)
 
-    tk.Button(root, text="Refresh", command=refresh_servers).pack(pady=5)
-    tk.Button(root, text="Connect", command=select_server).pack(pady=10)
+    # Add IP and Port Entry fields
+    manual_frame = tk.Frame(root)
+    manual_frame.pack(pady=5)
+
+    tk.Label(manual_frame, text="IP Address:").grid(row=0, column=0, padx=0, pady=0, sticky='e')
+    ip_entry = tk.Entry(manual_frame, width=20)
+    ip_entry.grid(row=0, column=1, padx=5, pady=0)
+
+    tk.Label(manual_frame, text="Port:").grid(row=0, column=2, padx=0, pady=0, sticky='e')
+    port_entry = tk.Entry(manual_frame, width=5)
+    port_entry.grid(row=0, column=3, padx=5, pady=0)
+
+    # Buttons
+    button_frame = tk.Frame(root)
+    button_frame.pack(pady=5)
+
+    tk.Button(button_frame, text="Connect", command=select_server).grid(row=0, column=1, padx=5)
+    tk.Button(button_frame, text="Refresh", command=refresh_servers).grid(row=0, column=0, padx=5)
 
     # Start the server discovery process
     start_search()
