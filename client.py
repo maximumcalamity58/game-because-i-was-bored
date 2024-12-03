@@ -1,11 +1,7 @@
 import os
 import pygame
-import socket
-import pickle
-import sys
 import uuid
 import json
-import queue
 from player import Player
 from platforms import Platforms
 from constants import (
@@ -19,35 +15,53 @@ from rendering import (
 )
 
 import tkinter as tk
-import socket
 import threading
+import sys
+import socket
+import struct
 import pickle
 import queue
-import sys
 
-def discover_servers(server_queue, stop_event, timeout=5):
+def discover_servers_multicast(server_queue, stop_event, timeout=5):
     """
-    Discover available servers by listening for broadcast messages.
+    Discover available servers by listening for multicast messages.
     Sends discovered servers to a queue for GUI updates.
     """
-    broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    broadcast_socket.bind(("", BROADCAST_PORT))
-    broadcast_socket.settimeout(timeout)
+    multicast_group = '224.0.0.1'  # Multicast group address (commonly used address)
+    port = BROADCAST_PORT  # Same port as before
+    multicast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 
-    print("Searching for servers...")
+    # Allow reusing the address and sending broadcast messages
+    multicast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    multicast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+    # Bind to the port to listen for multicast messages
+    multicast_socket.bind(('', port))
+
+    # Tell the socket to join the multicast group
+    group = socket.inet_aton(multicast_group)  # Convert IP address to binary format
+    mreq = struct.pack('4sL', group, socket.INADDR_ANY)  # Bind the multicast group to any local address
+    multicast_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+
+    # Set timeout for waiting for multicast messages
+    multicast_socket.settimeout(timeout)
+
+    print("Searching for servers via multicast...")
+
     try:
         while not stop_event.is_set():
             try:
-                data, addr = broadcast_socket.recvfrom(1024)
+                data, addr = multicast_socket.recvfrom(1024)
                 server_info = pickle.loads(data)
                 server_info['address'] = addr[0]
-                server_queue.put(server_info)  # Add to queue for GUI
+                server_queue.put(server_info)  # Add to queue for GUI updates
+                print(f"Discovered server: {server_info['server_name']} at {addr[0]}")
             except socket.timeout:
+                # Timeout after waiting for responses
                 pass
     finally:
-        broadcast_socket.close()
+        multicast_socket.close()
+
 
 def select_server_gui():
     """
@@ -63,7 +77,7 @@ def select_server_gui():
         Start the server discovery thread.
         """
         stop_event.clear()  # Ensure the event is reset for a fresh search
-        threading.Thread(target=discover_servers, args=(server_queue, stop_event), daemon=True).start()
+        threading.Thread(target=discover_servers_multicast, args=(server_queue, stop_event), daemon=True).start()
 
     def update_server_list():
         """
@@ -147,32 +161,6 @@ def save_player_data(player_uuid, username, hat):
     }
     with open(data_file, 'w') as f:
         json.dump(data, f)
-
-def discover_servers(server_queue, stop_event, timeout=5):
-    """
-    Discover available servers by listening for broadcast messages.
-    Sends discovered servers to a queue for GUI updates.
-    """
-    broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    broadcast_socket.bind(("", BROADCAST_PORT))
-    broadcast_socket.settimeout(timeout)
-
-    print("Searching for servers...")
-    try:
-        while not stop_event.is_set():  # Check if the stop event is triggered
-            try:
-                data, addr = broadcast_socket.recvfrom(1024)
-                server_info = pickle.loads(data)
-                server_info['address'] = addr[0]
-                server_queue.put(server_info)  # Add discovered server to the queue
-                print(f"Discovered server: {server_info['server_name']} at {addr[0]}")
-            except socket.timeout:
-                # Exit gracefully on timeout
-                pass
-    finally:
-        broadcast_socket.close()
 
 
 class Camera:

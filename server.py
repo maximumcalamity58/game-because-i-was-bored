@@ -287,20 +287,33 @@ class Server:
         conn.close()
         print(f"Disconnected: {addr}")
 
-    def broadcast_server_info(self, server_name, lobby_name, port):
+    def broadcast_server_info_multicast(self, server_name, lobby_name, port):
         """
-        Broadcast server information to the network.
+        Broadcast server information to the network using multicast.
         """
-        broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        multicast_group = '224.0.0.1'  # Multicast group address
+        multicast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        multicast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+        # Set TTL (Time-to-Live) to 255 to allow routing across subnets
+        multicast_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+
         server_info = {
             'server_name': server_name,
             'lobby_name': lobby_name,
-            'port': port,
+            'port': port
         }
+
         while True:
-            broadcast_socket.sendto(pickle.dumps(server_info), ('<broadcast>', BROADCAST_PORT))
-            time.sleep(BROADCAST_INTERVAL)
+            try:
+                multicast_socket.sendto(pickle.dumps(server_info), (multicast_group, BROADCAST_PORT))
+                print(f"Broadcasting server info: {server_name} at {multicast_group}:{BROADCAST_PORT}")
+                time.sleep(BROADCAST_INTERVAL)  # Broadcast interval
+            except Exception as e:
+                print(f"Error broadcasting server info: {e}")
+                break
+
+        multicast_socket.close()
 
     def broadcast_game_state(self, target_clients=None):
         """
@@ -439,7 +452,7 @@ class Server:
         Start the server and begin accepting clients.
         """
         threading.Thread(target=self.accept_clients, daemon=True).start()
-        threading.Thread(target=self.broadcast_server_info, args=(self.server_name, self.lobby_name, self.port),
+        threading.Thread(target=self.broadcast_server_info_multicast, args=(self.server_name, self.lobby_name, self.port),
                          daemon=True).start()
         print("Server is running.")
 
