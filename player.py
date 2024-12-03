@@ -85,6 +85,7 @@ class Player:
                 self.is_jumping = True
                 self.jump_time = 0.0
                 self.on_ground = False
+
                 # Set initial jump velocity opposite to gravity
                 if self.gravity_direction == "down":
                     self.velocity_y = -INITIAL_JUMP_VELOCITY
@@ -121,6 +122,7 @@ class Player:
             self.velocity_x = min(self.velocity_x, MAX_FALL_SPEED)
 
     def update(self, platforms, other_players, delta_time):
+        print(self.on_ground)
         if self.received_position_update:
             self.received_position_update = False  # Reset the flag
             # Optionally smooth position correction here
@@ -196,9 +198,9 @@ class Player:
                         self.on_ground = True
                     elif self.gravity_direction == "up" and self.rect.top == platform.rect.bottom:
                         self.on_ground = True
-                    elif self.gravity_direction == "left" and self.rect.left == platform.rect.right:
+                    elif self.gravity_direction == "right" and self.rect.left == platform.rect.right:
                         self.on_ground = True
-                    elif self.gravity_direction == "right" and self.rect.right == platform.rect.left:
+                    elif self.gravity_direction == "left" and self.rect.right == platform.rect.left:
                         self.on_ground = True
 
                 # Process platform effects

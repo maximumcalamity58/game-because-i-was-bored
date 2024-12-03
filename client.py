@@ -1,27 +1,133 @@
-# client.py
-
 import os
-import subprocess
-
 import pygame
 import socket
-import threading
 import pickle
 import sys
 import uuid
 import json
+import queue
 from player import Player
-from level import create_platforms  # Import the platform creation function
-from platforms import Platforms  # To create Platforms from received data
+from platforms import Platforms
 from constants import (
-    HOST, PORT, TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT,
-    COLOR_LIGHT_BLUE, COLOR_RED, COLOR_BLUE, COLOR_WHITE
+    BROADCAST_PORT, TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT,
+    COLOR_WHITE, COLOR_LIGHT_BLUE
 )
 from network_utils import recvall
 from rendering import (
     render_background, render_players, render_platforms,
     render_chat, render_debug_overlay
 )
+
+import tkinter as tk
+import socket
+import threading
+import pickle
+import queue
+import sys
+
+def discover_servers(server_queue, stop_event, timeout=5):
+    """
+    Discover available servers by listening for broadcast messages.
+    Sends discovered servers to a queue for GUI updates.
+    """
+    broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    broadcast_socket.bind(("", BROADCAST_PORT))
+    broadcast_socket.settimeout(timeout)
+
+    print("Searching for servers...")
+    try:
+        while not stop_event.is_set():
+            try:
+                data, addr = broadcast_socket.recvfrom(1024)
+                server_info = pickle.loads(data)
+                server_info['address'] = addr[0]
+                server_queue.put(server_info)  # Add to queue for GUI
+            except socket.timeout:
+                pass
+    finally:
+        broadcast_socket.close()
+
+def select_server_gui():
+    """
+    Create a tkinter GUI to display and select a server, with manual refresh and dynamic updates.
+    """
+    servers = []
+    selected_server = {}
+    stop_event = threading.Event()  # Event to signal the discovery thread to stop
+    server_queue = queue.Queue()    # Queue for communicating discovered servers
+
+    def start_search():
+        """
+        Start the server discovery thread.
+        """
+        stop_event.clear()  # Ensure the event is reset for a fresh search
+        threading.Thread(target=discover_servers, args=(server_queue, stop_event), daemon=True).start()
+
+    def update_server_list():
+        """
+        Update the server list from the queue.
+        """
+        while not server_queue.empty():
+            server_info = server_queue.get()
+            if server_info not in servers:
+                servers.append(server_info)
+                server_listbox.insert(tk.END, f"{server_info['server_name']} ({server_info['address']}:{server_info['port']})")
+
+    def refresh_servers():
+        """
+        Clear the current list and restart the search.
+        """
+        servers.clear()
+        server_listbox.delete(0, tk.END)
+        start_search()
+
+    def select_server(event=None):
+        """
+        Select a server from the list and close the GUI.
+        """
+        selection = server_listbox.curselection()
+        if selection:
+            index = selection[0]
+            selected_server.update(servers[index])
+            stop_event.set()  # Stop the discovery thread
+            root.destroy()
+
+    def poll_queue():
+        """
+        Poll the server queue periodically to update the GUI.
+        """
+        update_server_list()
+        if not stop_event.is_set():
+            root.after(100, poll_queue)  # Schedule the next poll
+
+    # Initialize tkinter window
+    root = tk.Tk()
+    root.title("Select a Server")
+
+    tk.Label(root, text="Discovered Servers:").pack(pady=5)
+
+    server_listbox = tk.Listbox(root, width=50, height=10)
+    server_listbox.pack(pady=5)
+    server_listbox.bind("<Double-1>", select_server)
+
+    tk.Button(root, text="Refresh", command=refresh_servers).pack(pady=5)
+    tk.Button(root, text="Connect", command=select_server).pack(pady=10)
+
+    # Start the server discovery process
+    start_search()
+
+    # Poll the server queue for updates
+    root.after(100, poll_queue)
+
+    # Open the GUI
+    root.mainloop()
+
+    if not selected_server:
+        sys.exit("No server selected.")
+
+    return selected_server
 
 def load_player_data():
     data_file = 'player_data.json'
@@ -42,6 +148,33 @@ def save_player_data(player_uuid, username, hat):
     with open(data_file, 'w') as f:
         json.dump(data, f)
 
+def discover_servers(server_queue, stop_event, timeout=5):
+    """
+    Discover available servers by listening for broadcast messages.
+    Sends discovered servers to a queue for GUI updates.
+    """
+    broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    broadcast_socket.bind(("", BROADCAST_PORT))
+    broadcast_socket.settimeout(timeout)
+
+    print("Searching for servers...")
+    try:
+        while not stop_event.is_set():  # Check if the stop event is triggered
+            try:
+                data, addr = broadcast_socket.recvfrom(1024)
+                server_info = pickle.loads(data)
+                server_info['address'] = addr[0]
+                server_queue.put(server_info)  # Add discovered server to the queue
+                print(f"Discovered server: {server_info['server_name']} at {addr[0]}")
+            except socket.timeout:
+                # Exit gracefully on timeout
+                pass
+    finally:
+        broadcast_socket.close()
+
+
 class Camera:
     def __init__(self, width, height):
         self.camera = pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -58,32 +191,45 @@ class Camera:
         x = target.rect.centerx - SCREEN_WIDTH // 2
         y = target.rect.centery - SCREEN_HEIGHT // 2
 
-        # Limit scrolling to the size of the game world (assuming world starts at 0,0)
         x = max(0, min(x, self.width - SCREEN_WIDTH))
         y = max(0, min(y, self.height - SCREEN_HEIGHT))
 
         self.camera = pygame.Rect(x, y, SCREEN_WIDTH, SCREEN_HEIGHT)
 
 def main():
+    # Step 1: Open server selection GUI
+    selected_server = select_server_gui()
+
+    # Step 2: Connect to the selected server
+    print(f"Connecting to server {selected_server['server_name']} at {selected_server['address']}:{selected_server['port']}")
+
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        server_socket.connect((selected_server['address'], selected_server['port']))
+    except ConnectionRefusedError:
+        print("Unable to connect to the server.")
+        sys.exit()
+
+    # Step 3: Initialize pygame after server selection
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Client View")
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, 24)
 
-    # Load saved UUID and username
+    # Step 4: Load player data
+    print("Loading player data...")  # Debugging
     player_uuid, username, selected_hat = load_player_data()
 
-    # If no UUID, generate one
+    # Generate a UUID if not present
     if not player_uuid:
         player_uuid = str(uuid.uuid4())
 
-    # If no username, prompt for username
+    # Prompt for username if not set
     if not username:
-        # Prompt for username
         username = ''
-        input_active = True
         input_font = pygame.font.SysFont(None, 36)
+        input_active = True
         while input_active:
             screen.fill((0, 0, 0))
             prompt_text = input_font.render("Enter your username:", True, COLOR_WHITE)
@@ -91,6 +237,7 @@ def main():
             username_text = input_font.render(username, True, COLOR_WHITE)
             screen.blit(username_text, (SCREEN_WIDTH // 2 - username_text.get_width() // 2, SCREEN_HEIGHT // 2))
             pygame.display.flip()
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
@@ -172,27 +319,24 @@ def main():
         # Load the selected hat image
         pass  # The hat image will be loaded when initializing the Player
 
-    # Initialize player with default position (will be updated from server)
-    player = Player(2.0, 10.0, 20, 20, username=username, hat=selected_hat)
-    player.is_local_player = True
-    player.uuid = player_uuid
+    # Exit if no server is selected
+    if not selected_server:
+        print("No server selected. Exiting.")
+        pygame.quit()
+        sys.exit()
 
-    # Initialize other variables
-    platforms = []  # Start with an empty list; will be populated from server
-    players = {}
-    chat_messages = []
-    show_debug_overlay = False
+    print(f"Connecting to server {selected_server['server_name']} at {selected_server['address']}:{selected_server['port']}")
 
-    # Connect to server
+    # Connect to the selected server
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        server_socket.connect((HOST, PORT))
+        server_socket.connect((selected_server['address'], selected_server['port']))
     except ConnectionRefusedError:
         print("Unable to connect to the server.")
         pygame.quit()
         sys.exit()
 
-    # Send UUID, username, and hat to the server
+    # Send initialization data to the server
     try:
         init_data = {'uuid': player_uuid, 'username': username, 'hat': selected_hat}
         init_data_serialized = pickle.dumps(init_data)
@@ -203,32 +347,15 @@ def main():
         pygame.quit()
         sys.exit()
 
-    # Receive player's position from the server
-    try:
-        data_length_bytes = recvall(server_socket, 4)
-        if not data_length_bytes:
-            print("Server closed the connection.")
-            pygame.quit()
-            sys.exit()
-        data_length = int.from_bytes(data_length_bytes, byteorder='big')
-        data = recvall(server_socket, data_length)
-        position_data = pickle.loads(data)
-        # Set the player's position
-        player.grid_x, player.grid_y = position_data.get('position', (2.0, 10.0))
-        player.rect.x = int(player.grid_x * TILE_SIZE)
-        player.rect.y = int(player.grid_y * TILE_SIZE)
-        player.velocity_x = position_data.get('velocity_x', 0.0)
-        player.velocity_y = position_data.get('velocity_y', 0.0)
-        player.hat = position_data.get('hat', player.hat)
-        if player.hat:
-            player.load_hat_image(player.hat)
-        player.username = position_data.get('username', player.username)
-    except Exception as e:
-        print(f"Error receiving position data from server: {e}")
-        pygame.quit()
-        sys.exit()
+    player = Player(2.0, 10.0, 20, 20, username=username, hat=selected_hat)
+    player.is_local_player = True
+    player.uuid = player_uuid
 
-    # Initialize camera
+    platforms = []
+    players = {}
+    chat_messages = []
+    show_debug_overlay = False
+
     camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
 
     def receive_game_state():
@@ -247,7 +374,6 @@ def main():
                     messages = received_data.get('chat', [])
 
                     with threading.Lock():
-                        # Update platforms
                         platforms.clear()
                         for pdata in platforms_data:
                             platform = Platforms(
@@ -260,17 +386,13 @@ def main():
                             platform.active = pdata.get('active', True)
                             platforms.append(platform)
 
-                        # Update players
                         for uuid, pdata in players_data.items():
                             if uuid == player_uuid:
-                                # Update local player attributes
                                 player.update_attributes(pdata)
-                                # Update position from server
                                 player.grid_x, player.grid_y = pdata.get('position', (0, 0))
                                 player.rect.x = int(player.grid_x * TILE_SIZE)
                                 player.rect.y = int(player.grid_y * TILE_SIZE)
                             else:
-                                # Update other players
                                 if pdata.get('connected', False):
                                     if uuid not in players:
                                         players[uuid] = Player(
@@ -288,48 +410,34 @@ def main():
                                         players[uuid].rect.y = int(players[uuid].grid_y * TILE_SIZE)
                                         players[uuid].update_attributes(pdata)
                                 else:
-                                    # Remove disconnected players
                                     if uuid in players:
                                         del players[uuid]
 
-                        # Add new chat messages
                         chat_messages.extend(messages)
 
-                        # Update camera dimensions based on level size
                         level_width = max(platform.rect.right for platform in platforms) if platforms else SCREEN_WIDTH
-                        level_height = max(
-                            platform.rect.bottom for platform in platforms) if platforms else SCREEN_HEIGHT
+                        level_height = max(platform.rect.bottom for platform in platforms) if platforms else SCREEN_HEIGHT
                         camera.width = level_width
                         camera.height = level_height
-
-                else:
-                    print("No data received from server.")
             except Exception as e:
                 print(f"Error receiving game state: {e}")
                 pygame.quit()
                 sys.exit()
 
-    # Start a thread to receive game state
     recv_thread = threading.Thread(target=receive_game_state, daemon=True)
     recv_thread.start()
 
     def update(delta_time):
-        # Handle input
         player.handle_input(delta_time)
-
-        # Apply gravity
         player.apply_gravity(delta_time)
-
-        # Update position
         player.update(platforms, players, delta_time)
 
-        # Send updated position to server
         try:
             data = {
                 'position': (player.grid_x, player.grid_y),
                 'velocity_x': player.velocity_x,
                 'velocity_y': player.velocity_y,
-                'gravity_direction': player.gravity_direction  # Add this line
+                'gravity_direction': player.gravity_direction
             }
             serialized_data = pickle.dumps(data)
             data_length = len(serialized_data)
@@ -339,13 +447,11 @@ def main():
             pygame.quit()
             sys.exit()
 
-    # Main game loop
     running = True
     while running:
-        delta_time = clock.tick(60) / 1000.0  # Convert milliseconds to seconds
-        delta_time = min(delta_time, 1/30)    # Cap delta_time to a maximum of 1/30 seconds
+        delta_time = clock.tick(60) / 1000.0
+        delta_time = min(delta_time, 1 / 30)
 
-        # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -353,27 +459,20 @@ def main():
                 if event.key == pygame.K_F3:
                     show_debug_overlay = not show_debug_overlay
 
-        # Update game state
         update(delta_time)
-
-        # Update camera
         camera.update(player)
 
-        # Render the game
         render_background(screen)
         render_platforms(screen, platforms, camera)
         with threading.Lock():
             render_players(screen, players, player, font=font, camera=camera)
         render_chat(screen, font, chat_messages)
 
-        # Display debug overlay if enabled
         if show_debug_overlay:
-            render_debug_overlay(screen, font, clock)  # Do not pass num_players
+            render_debug_overlay(screen, font, clock)
 
-        # Update display
         pygame.display.flip()
 
-    # Clean up
     pygame.quit()
     server_socket.close()
 

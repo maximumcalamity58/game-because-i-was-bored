@@ -1,14 +1,19 @@
 # server.py
+import getpass
+import tkinter as tk
+from tkinter import messagebox
 import socket
 import threading
 import sys
 import pygame
 import pickle
-from level import create_platforms  # Import the platform creation function
+import json
+import time
+from level import create_platforms
 from player import Player
 from constants import (
     PORT, TILE_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT,
-    DEBUG_BAR_HEIGHT
+    DEBUG_BAR_HEIGHT, BROADCAST_PORT, BROADCAST_INTERVAL
 )
 from network_utils import recvall
 from server_commands import CommandProcessor
@@ -16,7 +21,69 @@ from rendering import (
     render_background, render_players, render_platforms,
     render_chat, render_debug_overlay
 )
-from debug_bar import DebugBar  # Import the DebugBar class from debug_bar.py
+from debug_bar import DebugBar
+
+
+def get_server_config_gui():
+    """
+    Opens a GUI window for server configuration and returns the settings.
+    """
+    config = {}
+
+    def submit():
+        try:
+            config['server_name'] = server_name_entry.get()
+            config['lobby_name'] = lobby_name_entry.get()
+            config['port'] = int(port_entry.get())
+            config['password_protected'] = password_var.get()
+            config['password'] = password_entry.get() if password_var.get() else ''
+            if not config['server_name'] or not config['lobby_name'] or (config['password_protected'] and not config['password']):
+                raise ValueError("All fields must be filled out.")
+            root.quit()
+        except Exception as e:
+            messagebox.showerror("Invalid Input", str(e))
+
+    # Create the GUI window
+    root = tk.Tk()
+    root.title("Server Configuration")
+
+    # Labels and input fields
+    tk.Label(root, text="Server Name:").grid(row=0, column=0, padx=10, pady=5, sticky="e")
+    server_name_entry = tk.Entry(root)
+    server_name_entry.insert(0, "")
+    server_name_entry.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(root, text="Lobby Name:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
+    lobby_name_entry = tk.Entry(root)
+    lobby_name_entry.insert(0, "")
+    lobby_name_entry.grid(row=1, column=1, padx=10, pady=5)
+
+    tk.Label(root, text="Port:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
+    port_entry = tk.Entry(root)
+    port_entry.insert(0, str(PORT))
+    port_entry.grid(row=2, column=1, padx=10, pady=5)
+
+    password_var = tk.BooleanVar()
+    password_var.set(False)
+    tk.Checkbutton(root, text="Password Protect", variable=password_var).grid(row=3, column=0, columnspan=2, pady=5)
+
+    tk.Label(root, text="Password:").grid(row=4, column=0, padx=10, pady=5, sticky="e")
+    password_entry = tk.Entry(root, show="*")
+    password_entry.grid(row=4, column=1, padx=10, pady=5)
+
+    # Submit button
+    submit_button = tk.Button(root, text="Start Server", command=submit)
+    submit_button.grid(row=5, column=0, columnspan=2, pady=10)
+
+    # Center the window
+    root.eval('tk::PlaceWindow . center')
+
+    # Run the GUI event loop
+    root.mainloop()
+    root.destroy()
+
+    return config
+
 
 class Server:
     """
@@ -24,13 +91,21 @@ class Server:
     """
 
     def __init__(self):
+        # Get server configuration from the GUI
+        config = get_server_config_gui()
+        self.server_name = config['server_name']
+        self.lobby_name = config['lobby_name']
+        self.port = config['port']
+        self.password_protected = config['password_protected']
+        self.password = config['password']
+
         self.players = {}  # {uuid: Player instance}
         self.lock = threading.Lock()
         self.clients = {}  # {conn: uuid}
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(('0.0.0.0', PORT))
+        self.server_socket.bind(('0.0.0.0', self.port))
         self.server_socket.listen()
-        print(f"Server started on port {PORT}, waiting for connections...")
+        print(f"Server '{self.server_name}' started on port {self.port}, waiting for connections...")
 
         # Pygame initialization
         pygame.init()
@@ -40,7 +115,7 @@ class Server:
         self.font = pygame.font.SysFont(None, 24)
 
         # Platforms
-        self.platforms = create_platforms()  # Use centralized platform creation
+        self.platforms = create_platforms()
 
         # Initialize CommandProcessor
         self.command_processor = CommandProcessor(self)
@@ -212,6 +287,21 @@ class Server:
         conn.close()
         print(f"Disconnected: {addr}")
 
+    def broadcast_server_info(self, server_name, lobby_name, port):
+        """
+        Broadcast server information to the network.
+        """
+        broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        server_info = {
+            'server_name': server_name,
+            'lobby_name': lobby_name,
+            'port': port,
+        }
+        while True:
+            broadcast_socket.sendto(pickle.dumps(server_info), ('<broadcast>', BROADCAST_PORT))
+            time.sleep(BROADCAST_INTERVAL)
+
     def broadcast_game_state(self, target_clients=None):
         """
         Send updated game state (players and platforms) to all connected clients or specified clients.
@@ -349,10 +439,38 @@ class Server:
         Start the server and begin accepting clients.
         """
         threading.Thread(target=self.accept_clients, daemon=True).start()
+        threading.Thread(target=self.broadcast_server_info, args=(self.server_name, self.lobby_name, self.port),
+                         daemon=True).start()
         print("Server is running.")
 
         # Start the game rendering loop
         self.render_game()
+
+def get_server_config():
+    """
+    Prompts the server administrator for configuration parameters.
+    """
+    print("Welcome to the Game Server Setup!")
+    server_name = input("Enter server name (default: 'MyGameServer'): ") or 'MyGameServer'
+    lobby_name = input("Enter lobby name (default: 'Default Lobby'): ") or 'Default Lobby'
+    port_input = input(f"Enter port (default: {BROADCAST_PORT}): ")
+    try:
+        port = int(port_input) if port_input else BROADCAST_PORT
+    except ValueError:
+        print("Invalid port number. Using default.")
+        port = BROADCAST_PORT
+    password_protected_input = input("Password protect the server? (yes/no, default: no): ").lower() or 'no'
+    password_protected = password_protected_input in ['yes', 'y']
+    password = ''
+    if password_protected:
+        password = getpass.getpass("Enter password: ")
+    return {
+        'server_name': server_name,
+        'lobby_name': lobby_name,
+        'port': port,
+        'password_protected': password_protected,
+        'password': password
+    }
 
 if __name__ == "__main__":
     server = Server()

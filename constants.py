@@ -1,8 +1,11 @@
 # constants.py
 
-# Network constants
-HOST = '127.0.0.1'  # Replace with the server's IP address
+# Port number
 PORT = 12345
+
+# UDP Broadcast constants
+BROADCAST_PORT = 12346
+BROADCAST_INTERVAL = 2  # seconds
 
 # Game constants
 GRAVITY = 1000  # Pixels per second squared
