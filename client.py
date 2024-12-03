@@ -1,4 +1,29 @@
 import os
+import sys
+import subprocess
+import importlib
+
+def ensure_package(package_name):
+    """
+    Ensure the specified package is installed.
+    If not installed, install it using pip.
+    """
+    try:
+        # Check if the package can be imported
+        importlib.import_module(package_name)
+    except ImportError:
+        print(f"Package '{package_name}' is not installed. Installing now...")
+        try:
+            # Install the package
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+        except Exception as e:
+            print(f"Failed to install '{package_name}': {e}")
+            sys.exit(1)
+
+# Ensure pygame is installed
+ensure_package("pygame")
+
+# Import pygame after ensuring it is installed
 import pygame
 import uuid
 import json
@@ -213,10 +238,11 @@ def main():
     if not player_uuid:
         player_uuid = str(uuid.uuid4())
 
+    input_font = pygame.font.SysFont(None, 36)
+
     # Prompt for username if not set
     if not username:
         username = ''
-        input_font = pygame.font.SysFont(None, 36)
         input_active = True
         while input_active:
             screen.fill((0, 0, 0))

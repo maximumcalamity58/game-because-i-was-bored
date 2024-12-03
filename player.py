@@ -122,7 +122,6 @@ class Player:
             self.velocity_x = min(self.velocity_x, MAX_FALL_SPEED)
 
     def update(self, platforms, other_players, delta_time):
-        print(self.on_ground)
         if self.received_position_update:
             self.received_position_update = False  # Reset the flag
             # Optionally smooth position correction here
