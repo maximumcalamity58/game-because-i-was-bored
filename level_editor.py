@@ -183,7 +183,7 @@ class LevelEditor:
             }
             platform_configs.append(config)
 
-        with open('levels/level_data.json', 'w') as f:
+        with open('level_data.json', 'w') as f:
             json.dump(platform_configs, f, indent=4)
 
         tk.messagebox.showinfo("Level Saved", "Level data has been saved to 'level_data.json'.")
