@@ -236,9 +236,6 @@ class Camera:
         x = target.rect.centerx - SCREEN_WIDTH // 2
         y = target.rect.centery - SCREEN_HEIGHT // 2
 
-        x = max(0, min(x, self.width - SCREEN_WIDTH))
-        y = max(0, min(y, self.height - SCREEN_HEIGHT))
-
         self.camera = pygame.Rect(x, y, SCREEN_WIDTH, SCREEN_HEIGHT)
 
 def main():
@@ -393,7 +390,7 @@ def main():
         pygame.quit()
         sys.exit()
 
-    player = Player(2.0, 10.0, 20, 20, username=username, hat=selected_hat)
+    player = Player(0.0, 0.0, 20, 20, username=username, hat=selected_hat)
     player.is_local_player = True
     player.uuid = player_uuid
 

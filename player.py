@@ -216,7 +216,7 @@ class Player:
         """
         Respawn the player at the starting position.
         """
-        self.grid_x, self.grid_y = 2.0, 10.0  # Example respawn coordinates
+        self.grid_x, self.grid_y = 0.0, 0.0  # Example respawn coordinates
         self.rect.x = int(self.grid_x * TILE_SIZE)
         self.rect.y = int(self.grid_y * TILE_SIZE)
         self.velocity_x = 0
